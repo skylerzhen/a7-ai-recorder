@@ -1,0 +1,75 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Node
+**/node_modules/
+**/tmp/
+**/uploads/
+npm-debug.log*
+
+# Dart / Flutter / Android / iOS build state
+**/.dart_tool/
+**/.pub-cache/
+**/.flutter-plugins-dependencies
+**/build/
+**/coverage/
+**/.gradle/
+**/.cxx/
+**/local.properties
+**/GeneratedPluginRegistrant.java
+**/ios/Pods/
+**/ios/.symlinks/
+**/ios/Flutter/ephemeral/
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/flutter_export_environment.sh
+**/xcuserdata/
+
+# Editors / OS / logs
+.DS_Store
+.idea/
+.vscode/
+*.iml
+*.log
+*.swp
+
+# Local SDKs and reverse-engineering inputs
+.tools/
+platform-tools/
+doway_apk/
+bt_log/
+
+# Generated test evidence and local captures
+app/*.png
+app/*.mp4
+app/M1_*.txt
+app/M1_*.png
+web/*.mp3
+web/*.wav
+web/*.bin
+web/*_out.json
+web/captures.ndjson
+/tmp/
+
+# Misc archives / packages
+*.apk
+*.aab
+*.ipa
+*.zip
+*.tar
+*.tar.gz
+

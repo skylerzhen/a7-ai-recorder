@@ -1,0 +1,3 @@
+# 协议核心 + 单测: 仅需标准库 (python3 -m unittest)
+# 以下仅在连真机跑 CLI (discover/info/ls/pull/stream) 时需要:
+bleak>=0.22

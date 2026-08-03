@@ -1,0 +1,14 @@
+# 部署惯例对齐 /opt/ai-power-snap:build + image + container_name + restart:unless-stopped + env_file + 127.0.0.1 端口。
+# 端口只绑 127.0.0.1(不公网暴露),由宿主 nginx 反代到此(CF → nginx:443 → 这里)。
+services:
+  a7-ai-backend:
+    build: .
+    image: a7-ai-backend:latest
+    container_name: a7-ai-backend
+    restart: unless-stopped
+    env_file:
+      - .env # 密钥仅存于服务器该文件(600),不进仓库/镜像/日志
+    environment:
+      - PORT=8787 # 固定容器内监听端口,与下方映射一致
+    ports:
+      - "127.0.0.1:8787:8787"

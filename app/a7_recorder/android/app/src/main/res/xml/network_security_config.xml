@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- just_audio 的自定义音频源(StreamAudioSource)经本地回环 http 代理服务,
+     Android 默认禁明文,这里仅对 127.0.0.1 放行明文,供实时流边收边播。 -->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">127.0.0.1</domain>
+        <domain includeSubdomains="true">localhost</domain>
+    </domain-config>
+</network-security-config>

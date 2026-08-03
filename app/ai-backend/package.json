@@ -1,0 +1,27 @@
+{
+  "name": "a7-ai-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A7 录音笔 AI 层薄后端:音频 → ffmpeg PCM → 讯飞 RTASR(带说话人) → 豆包/方舟 结构化纪要。复用 web-advisor 的 xfyun-rtasr / llm-client / post-summary。",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "multer": "^1.4.5-lts.1",
+    "opusscript": "^0.1.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/multer": "^1.4.12",
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.5.13",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

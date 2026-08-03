@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A7 录音笔 BLE 测试台 (Web Bluetooth)</title>
+<style>
+  :root{--bg:#0f1216;--panel:#171c23;--line:#2a3340;--fg:#d8e0ea;--mut:#8b97a7;--ok:#36d399;--bad:#f87272;--acc:#5aa9ff;--warn:#fbbd23}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+  header{padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  h1{font-size:15px;margin:0;font-weight:600}
+  .pill{padding:2px 8px;border-radius:999px;font-size:11px;border:1px solid var(--line)}
+  .pill.ok{color:var(--ok);border-color:#1d4d3a}.pill.bad{color:var(--bad);border-color:#5b2222}.pill.mut{color:var(--mut)}
+  main{display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100vh - 53px)}
+  @media(max-width:820px){main{grid-template-columns:1fr;height:auto}}
+  .side{border-right:1px solid var(--line);padding:14px 16px;overflow:auto}
+  .log{padding:14px 16px;overflow:auto;background:#0b0e12}
+  button{background:#1f2630;color:var(--fg);border:1px solid var(--line);border-radius:7px;padding:7px 11px;cursor:pointer;font:inherit;margin:0 6px 8px 0}
+  button:hover{border-color:var(--acc)}button:disabled{opacity:.4;cursor:not-allowed}
+  button.primary{background:#15324f;border-color:#27557f;color:#cfe6ff}
+  .grp{margin-bottom:16px}.grp h2{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin:0 0 8px}
+  input,select{background:#0b0e12;color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;font:inherit}
+  .row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+  table{border-collapse:collapse;width:100%;font-size:12px}
+  td,th{border:1px solid var(--line);padding:2px 6px;text-align:left}
+  th{color:var(--mut);font-weight:500}
+  .hi{background:#15324f}
+  .le{font-size:12px;margin:2px 0;white-space:pre-wrap;word-break:break-all}
+  .le .t{color:var(--mut)}.le .tx{color:var(--warn)}.le .b0b2{color:var(--acc)}.le .b0b3{color:#c084fc}.le .b0b4{color:var(--ok)}
+  .le .okc{color:var(--ok)}.le .badc{color:var(--bad)}
+  .kv{color:var(--mut)}.kv b{color:var(--fg)}
+  small{color:var(--mut)}
+  a{color:var(--acc)}
+</style>
+</head>
+<body>
+<header>
+  <h1>A7 录音笔 BLE 测试台</h1>
+  <span id="selftest" class="pill mut">自检…</span>
+  <span id="conn" class="pill bad">未连接</span>
+  <span id="dev" class="pill mut"></span>
+  <span style="flex:1"></span>
+  <small>需 Chrome / Edge · 协议=逆向《AI 录音笔 BLE》· CRC-16/ARC 小端</small>
+</header>
+<main>
+  <div class="side">
+    <div class="grp">
+      <h2>连接</h2>
+      <button id="btnConn" class="primary">连接 "X Note"</button>
+      <button id="btnConnAny">连接(列出全部)</button>
+      <button id="btnDisc" disabled>断开</button>
+      <div><small>点连接后在弹窗里选设备;设备睡了就先按一下机身按键。</small></div>
+    </div>
+    <div class="grp">
+      <h2>命令</h2>
+      <button class="cmd primary" data-cmd="5" disabled>0x05 设备信息</button>
+      <button class="cmd" data-cmd="3" disabled>0x03 取 SN</button>
+      <button class="cmd" data-cmd="10" disabled>0x0a 文件列表</button>
+      <div class="row">
+        <span class="kv">通用:</span>
+        <span>cmd</span><input id="rawCmd" size="4" value="0x05" disabled>
+        <span>data(hex)</span><input id="rawData" size="14" placeholder="留空" disabled>
+        <button id="btnRaw" disabled>发送</button>
+      </div>
+    </div>
+    <div class="grp">
+      <h2>录音流 / 文件</h2>
+      <div class="row">
+        <button id="btnRec" disabled>0x06 开录</button>
+        <button id="btnStop" disabled>0x07 停</button>
+      </div>
+      <div class="row">
+        <span class="kv">已抓 B0B3:</span><b id="rtN">0</b><span>分片</span>
+        <button id="dlRt" disabled>下载实时流</button>
+      </div>
+      <div class="row">
+        <span class="kv">已抓 B0B4:</span><b id="flN">0</b><span>分片</span>
+        <button id="dlFile" disabled>下载文件数据</button>
+      </div>
+      <div><small>实时流真实编码看头部魔数再定容器(.mp3/.opus)。</small></div>
+    </div>
+    <div class="grp">
+      <h2>设备信息解码 (0x05)</h2>
+      <div id="diBox"><small>发一次 0x05 后这里出偏移表+字段猜测。</small></div>
+    </div>
+    <div class="grp">
+      <button id="btnClear">清空日志</button>
+    </div>
+  </div>
+  <div class="log" id="log"></div>
+</main>
+<script>
+// ---------- 协议核心 (与 a7ble 的 Python 逐函数对齐;CRC 小端) ----------
+function crc16_arc(bytes){let c=0;for(const b of bytes){c^=b;for(let i=0;i<8;i++){c=(c&1)?((c>>>1)^0xA001):(c>>>1);}}return c&0xFFFF;}
+function buildFrame(cmd,data){data=data||[];const body=[0xA0,0x0A,0x01,cmd&0xFF,data.length&0xFF,...data];const crc=crc16_arc(body);return new Uint8Array([...body,crc&0xFF,(crc>>8)&0xFF]);} // CRC 小端: 低字节在前
+function parseFrame(u8){const r={ok:false,cmd:-1,len:0,data:new Uint8Array(),raw:u8};
+  if(u8.length<7||u8[0]!==0xA0||u8[1]!==0x0A)return r;
+  r.ver=u8[2];r.cmd=u8[3];r.len=u8[4];r.data=u8.slice(5,5+r.len);
+  const cb=u8.slice(5+r.len,5+r.len+2),body=u8.slice(0,5+r.len);
+  const wire=cb.length===2?(cb[0]|(cb[1]<<8)):-1; // 小端
+  r.ok=crc16_arc(body)===wire;return r;}
+const hex=u8=>Array.from(u8,b=>b.toString(16).padStart(2,'0')).join(' ');
+const ascii=u8=>Array.from(u8,b=>(b>=32&&b<127)?String.fromCharCode(b):'.').join('');
+
+// ---------- 自检 (浏览器里就地验证 JS 端口与 Python 一致) ----------
+(function(){
+  const t=[];
+  t.push(crc16_arc(new TextEncoder().encode("123456789"))===0xBB3D);
+  const real=Uint8Array.from(("a0 0a 01 05 34 00 00 ee 12 00 00 ee 0f 00 14 01 01 00 04 01 01 ff "+
+    "78 69 6e 6b 5f 74 65 73 74 00 00 00 00 00 00 00 00 00 00 00 00 00 "+
+    "09 ff 03 00 00 00 00 00 00 00 00 00 00 d9 f4").trim().split(/\s+/).map(h=>parseInt(h,16)));
+  const pf=parseFrame(real);t.push(pf.ok&&pf.cmd===0x05&&pf.len===0x34);
+  const rt=parseFrame(buildFrame(0x06,[1,2,3]));t.push(rt.ok&&rt.cmd===6&&rt.data.length===3);
+  const el=document.getElementById('selftest'),pass=t.every(Boolean);
+  el.textContent=pass?`自检通过 ${t.length}/${t.length}`:`自检失败!`;
+  el.className='pill '+(pass?'ok':'bad');
+})();
+
+// ---------- UUID ----------
+const U={svc:0xb0b0,wr:0xb0b1,cmd:0xb0b2,rt:0xb0b3,file:0xb0b4,ota:'e49a3001-f69a-11e8-8eb2-f2801f1b9fd1'};
+const SHORT=u=>{const m=/0000([0-9a-f]{4})-/.exec(u);return m?m[1]:u.slice(0,8);};
+let dev=null,gatt=null,chWr=null,rtChunks=[],flChunks=[];
+
+// ---------- 日志 ----------
+const logEl=document.getElementById('log');
+function log(html){const d=document.createElement('div');d.className='le';d.innerHTML=html;logEl.appendChild(d);logEl.scrollTop=logEl.scrollHeight;}
+function up(rec){try{fetch('/log',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(rec)});}catch(e){}} // 回传到本机供 agent 读取
+const ts=()=>{const d=new Date();return d.toTimeString().slice(0,8)+'.'+String(d.getMilliseconds()).padStart(3,'0');};
+function logRx(srcShort,u8){const f=parseFrame(u8);
+  const cls=srcShort;const tag=f.ok?`<span class="okc">cmd=0x${f.cmd.toString(16).padStart(2,'0')} crc_ok len=${f.len}</span>`:`<span class="badc">raw(无效CRC)</span>`;
+  log(`<span class="t">${ts()}</span> <span class="${cls}">RX ${srcShort}</span> ${hex(u8)}  ${tag}`);
+  up({dir:'rx',src:srcShort,hex:hex(u8),crc_ok:f.ok,cmd:f.ok?f.cmd:null,len:f.ok?f.len:null});
+  if(f.ok&&f.cmd===0x05)renderDeviceInfo(f.data);
+}
+
+// ---------- 设备信息解码 ----------
+function rd32le(d,o){return (d[o]|(d[o+1]<<8)|(d[o+2]<<16)|(d[o+3]<<24))>>>0;}
+function rd32be(d,o){return ((d[o]<<24)|(d[o+1]<<16)|(d[o+2]<<8)|d[o+3])>>>0;}
+function renderDeviceInfo(d){
+  let rows='';
+  for(let o=0;o<d.length;o+=8){const ck=d.slice(o,o+8);rows+=`<tr><td>${o}</td><td>${hex(ck)}</td><td>${ascii(ck)}</td></tr>`;}
+  let name='';for(let i=17;i<31&&i<d.length;i++){if(d[i]===0)break;name+=String.fromCharCode(d[i]);}
+  const guess=`<table>
+    <tr><th>字段(猜)</th><th>值</th></tr>
+    <tr class="hi"><td>电量? [9]</td><td>${d[9]} (0x${(d[9]||0).toString(16)})  ≈${d[9]}%?</td></tr>
+    <tr><td>容量A [0:4]</td><td>LE=${rd32le(d,0)} / BE=${rd32be(d,0)}</td></tr>
+    <tr><td>容量B [4:8]</td><td>LE=${rd32le(d,4)} / BE=${rd32be(d,4)}</td></tr>
+    <tr><td>标志 [10:16]</td><td>${hex(d.slice(10,16))}</td></tr>
+    <tr class="hi"><td>名字 [17:31]</td><td>"${name}"</td></tr>
+    <tr><td>末段 [39][41]</td><td>${d[39]} / ${d[41]}</td></tr>
+  </table>`;
+  document.getElementById('diBox').innerHTML=`<small>${d.length}B</small><table><tr><th>off</th><th>hex</th><th>ascii</th></tr>${rows}</table>${guess}`;
+}
+
+// ---------- BLE ----------
+async function doConnect(filtered){
+  try{
+    const opts=filtered?{filters:[{name:'X Note'}],optionalServices:[U.svc,0xc0c0,0x180f,U.ota]}
+                       :{acceptAllDevices:true,optionalServices:[U.svc,0xc0c0,0x180f,U.ota]};
+    dev=await navigator.bluetooth.requestDevice(opts);
+    dev.addEventListener('gattserverdisconnected',onDisc);
+    log(`<span class="t">${ts()}</span> 选中设备: <b>${dev.name||'(无名)'}</b> id=${dev.id}`);
+    gatt=await dev.gatt.connect();
+    const svc=await gatt.getPrimaryService(U.svc);
+    chWr=await svc.getCharacteristic(U.wr);
+    for(const [k,uuid] of [['cmd',U.cmd],['rt',U.rt],['file',U.file]]){
+      const ch=await svc.getCharacteristic(uuid);
+      await ch.startNotifications();
+      ch.addEventListener('characteristicvaluechanged',e=>{
+        const u8=new Uint8Array(e.target.value.buffer);
+        if(k==='rt'){rtChunks.push(u8);document.getElementById('rtN').textContent=rtChunks.length;document.getElementById('dlRt').disabled=false;}
+        if(k==='file'){flChunks.push(u8);document.getElementById('flN').textContent=flChunks.length;document.getElementById('dlFile').disabled=false;}
+        logRx(SHORT(ch.uuid),u8);
+      });
+    }
+    setConn(true);
+    up({event:'connect',name:dev.name||'',id:dev.id});
+    log(`<span class="okc">已连接,3 路 notify 已订阅 (b0b2/b0b3/b0b4)。</span>`);
+  }catch(err){log(`<span class="badc">连接失败: ${err}</span>`);}
+}
+function onDisc(){setConn(false);log(`<span class="badc">${ts()} 连接断开(设备可能睡了)。</span>`);}
+function setConn(on){
+  document.getElementById('conn').textContent=on?'已连接':'未连接';
+  document.getElementById('conn').className='pill '+(on?'ok':'bad');
+  document.getElementById('dev').textContent=on&&dev?(dev.name||''):'';
+  document.getElementById('btnDisc').disabled=!on;
+  document.querySelectorAll('.cmd,#btnRaw,#rawCmd,#rawData,#btnRec,#btnStop').forEach(b=>b.disabled=!on);
+}
+async function send(cmd,data,label){
+  if(!chWr){log('<span class="badc">未连接</span>');return;}
+  const f=buildFrame(cmd,data);
+  log(`<span class="t">${ts()}</span> <span class="tx">TX</span> ${hex(f)}  <span class="kv">${label||('0x'+cmd.toString(16))}</span>`);
+  up({dir:'tx',cmd,hex:hex(f),label:label||('0x'+cmd.toString(16))});
+  try{await chWr.writeValueWithoutResponse(f);}catch(e){
+    try{await chWr.writeValue(f);}catch(e2){log(`<span class="badc">写失败: ${e2}</span>`);}
+  }
+}
+function download(chunks,name){
+  const total=chunks.reduce((n,c)=>n+c.length,0);const buf=new Uint8Array(total);let o=0;
+  for(const c of chunks){buf.set(c,o);o+=c.length;}
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([buf]));a.download=name;a.click();
+  log(`<span class="okc">已导出 ${name} (${total} 字节, ${chunks.length} 分片)</span>`);
+}
+
+// ---------- 事件 ----------
+document.getElementById('btnConn').onclick=()=>doConnect(true);
+document.getElementById('btnConnAny').onclick=()=>doConnect(false);
+document.getElementById('btnDisc').onclick=()=>{if(gatt&&gatt.connected)gatt.disconnect();};
+document.querySelectorAll('.cmd').forEach(b=>b.onclick=()=>{const c=+b.dataset.cmd;send(c,[],b.textContent.trim());});
+document.getElementById('btnRaw').onclick=()=>{
+  const c=parseInt(document.getElementById('rawCmd').value,16); // parseInt 接受 "0x05" 或 "05"
+  if(isNaN(c)){log('<span class="badc">cmd 解析失败</span>');return;}
+  const ds=document.getElementById('rawData').value.replace(/[^0-9a-fA-F]/g,'');
+  const data=[];for(let i=0;i<ds.length;i+=2)data.push(parseInt(ds.substr(i,2),16));
+  send(c,data,'通用 0x'+c.toString(16).padStart(2,'0'));
+};
+document.getElementById('btnRec').onclick=()=>{rtChunks=[];document.getElementById('rtN').textContent=0;
+  // 0x06: 文件名(14B null 补齐) + 类型(1B)
+  const name='webtest';const nb=[];for(let i=0;i<14;i++)nb.push(i<name.length?name.charCodeAt(i):0);
+  send(0x06,[...nb,0],'0x06 开录 webtest');};
+document.getElementById('btnStop').onclick=()=>send(0x07,[],'0x07 停');
+document.getElementById('dlRt').onclick=()=>{
+  // 实测 b0b3 = 裸 MP3(MPEG2-L3 32k/16k/mono),裁到首个帧同步后存 .mp3
+  const total=rtChunks.reduce((n,c)=>n+c.length,0);const buf=new Uint8Array(total);let o=0;for(const c of rtChunks){buf.set(c,o);o+=c.length;}
+  let s=0;while(s+1<buf.length&&!(buf[s]===0xFF&&(buf[s+1]&0xE0)===0xE0))s++;
+  const mp3=buf.slice(s);const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([mp3],{type:'audio/mpeg'}));a.download='realtime.mp3';a.click();
+  log(`<span class="okc">导出 realtime.mp3 (${mp3.length} 字节, 裁掉前 ${s} 字节至首个 MP3 同步)</span>`);
+};
+document.getElementById('dlFile').onclick=()=>download(flChunks,'file_b0b4.bin');
+document.getElementById('btnClear').onclick=()=>logEl.innerHTML='';
+</script>
+</body>
+</html>

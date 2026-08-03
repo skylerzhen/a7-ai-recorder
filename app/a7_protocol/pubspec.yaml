@@ -1,0 +1,17 @@
+name: a7_protocol
+description: >-
+  Pure-Dart core of the 智芯 A7 ("X Note") BLE private protocol:
+  CRC-16/ARC, frame build/parse, advertisement parsing, command codec.
+  ZERO Flutter / ZERO Bluetooth dependencies — ports a7ble (Python) 1:1.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.0.0
+
+# NOTE (acceptance gate): there are deliberately NO regular `dependencies`.
+# This package must not depend on flutter or flutter_blue_plus.
+# `crypto` is dev-only (md5 assertion in tests) — it does NOT count as a runtime dep.
+dev_dependencies:
+  test: ^1.24.0
+  crypto: ^3.0.0
