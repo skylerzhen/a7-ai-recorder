@@ -1,11 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { buildSummaryPrompt, generatePostMeetingSummary } from '../src/post-summary'
-import type { LLMClient } from '../src/llm-client'
+import type { LlmProvider } from '../src/providers/llm-provider'
 
-// 假 LLMClient:只实现 generateShort,用于不连网测纪要逻辑。
-function fakeLlm(impl: () => Promise<string>): LLMClient {
-  return { generateShort: impl } as unknown as LLMClient
+// 假 LlmProvider:只实现 generateShort,用于不连网测纪要逻辑。
+function fakeLlm(impl: () => Promise<string>): LlmProvider {
+  return { generateShort: impl } as unknown as LlmProvider
 }
 
 test('P0-a:LLM 抛错时返回 {summary:null,error},绝不向上抛(转写不被连累)', async () => {

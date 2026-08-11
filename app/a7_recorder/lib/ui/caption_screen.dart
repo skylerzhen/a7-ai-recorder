@@ -17,6 +17,7 @@ import '../ble/fake_unbounded_transport.dart';
 import '../device/a7_device.dart';
 import '../library/recording.dart';
 import '../library/recording_store.dart';
+import '../recording/recording_keep_alive.dart';
 import 'connection_indicator.dart';
 import 'detail_screen.dart';
 import 'theme.dart';
@@ -82,6 +83,7 @@ class _CaptionScreenState extends ConsumerState<CaptionScreen> {
 
   @override
   void dispose() {
+    unawaited(RecordingKeepAlive.stop());
     _capSub?.cancel();
     _audioSub?.cancel();
     _askSub?.cancel();
@@ -215,6 +217,7 @@ class _CaptionScreenState extends ConsumerState<CaptionScreen> {
       if (_running && mounted) setState(() => _elapsedSec++);
     });
     try {
+      await RecordingKeepAlive.start();
       // WS 分流:手机→?fmt=pcm;A7 新机→?fmt=opus;A7 旧机/模拟器→无参(mp3,走 ffmpeg 老路)。
       final base = wsStreamUrl(ref.read(backendBaseProvider));
       final String wsUrl = _src == _Src.phone
@@ -226,17 +229,17 @@ class _CaptionScreenState extends ConsumerState<CaptionScreen> {
       _capSub = c.messages.listen(
         _onMsg,
         onError: (Object e) {
-          setState(() => _error = 'WS:$e');
-          _stop();
+          // 后台网络闪断时不自动停录音;用户可手动结束并保存。
+          if (mounted) setState(() => _error = '字幕连接中断:$e(本地收音可能仍在继续)');
         },
         onDone: () {
           if (_running && mounted) {
-            setState(() => _running = false);
-            _tick?.cancel();
+            setState(() => _error ??= '字幕连接已断开(本地收音可能仍在继续)');
           }
         },
       );
     } catch (e) {
+      await RecordingKeepAlive.stop();
       setState(() {
         _error = '$e';
         _running = false;
@@ -288,6 +291,8 @@ class _CaptionScreenState extends ConsumerState<CaptionScreen> {
           encoder: AudioEncoder.pcm16bits,
           sampleRate: 16000,
           numChannels: 1,
+          // 来电等中断后尽量自动恢复收音(iOS 需 Info.plist audio 后台模式)。
+          audioInterruptionMode: AudioInterruptionMode.pauseResume,
         ));
         _audioSub = stream.cast<List<int>>().listen((b) {
           _client?.sendAudio(b);
@@ -320,6 +325,7 @@ class _CaptionScreenState extends ConsumerState<CaptionScreen> {
     _tick?.cancel();
     _client?.end();
     await _stopAudioOnly();
+    await RecordingKeepAlive.stop();
     if (mounted) setState(() => _running = false);
   }
 

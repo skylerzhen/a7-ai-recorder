@@ -3,7 +3,7 @@
  * 本棒(1A)只实现 ask(会中问 AI,流式);advise(主动提示,1B)/ summarize(1C)留占位。
  */
 
-import { LLMClient } from './llm-client'
+import type { LlmProvider } from './providers/llm-provider'
 
 export interface MeetingContext {
   goal?: string // 本场目标(我方想从这场拿到什么)
@@ -143,7 +143,7 @@ export function parseAdvise(raw: string): LiveCue {
 
 /** 把回调式 streamChat 桥接成 AsyncIterable<string>,逐 token 吐出(ask / summarize 共用)。 */
 async function* streamLlm(
-  llm: LLMClient,
+  llm: LlmProvider,
   system: string,
   user: string,
   maxTokens: number,
@@ -193,9 +193,9 @@ async function* streamLlm(
   await p.catch(() => {})
 }
 
-/** 默认大脑:走 OpenAI 兼容 LLM(豆包/方舟)。 */
+/** 默认大脑:走 OpenAI 兼容 LLM(豆包/方舟/OpenClaw 等)。 */
 export class LlmBrain implements BrainProvider {
-  constructor(private llm: LLMClient) {}
+  constructor(private llm: LlmProvider) {}
 
   /** 会中问 AI:逐 token 流式吐「小抄」。 */
   async *ask(ctx: MeetingContext, question: string): AsyncIterable<string> {

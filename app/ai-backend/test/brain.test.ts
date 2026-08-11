@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { buildAskPrompt, buildAdvisePrompt, parseAdvise, LlmBrain } from '../src/brain'
-import type { LLMClient } from '../src/llm-client'
+import type { LlmProvider } from '../src/providers/llm-provider'
 
 // 「问 AI」prompt 立场:帮「佩戴录音笔的我方」准备下一句该说/该问;goal 非空就围绕本场目标。
 test('buildAskPrompt:有目标 → system 立场 + user 含目标/逐字稿/问题', () => {
@@ -117,7 +117,7 @@ test('LlmBrain.summarize(流式):注入 goal/clientBackground 到 prompt,逐 tok
       p.onText('达成共识')
       p.onDone()
     },
-  } as unknown as LLMClient
+  } as unknown as LlmProvider
   let out = ''
   for await (const t of new LlmBrain(llm).summarize({
     transcript: '[说话人1] 预算十万',
@@ -139,7 +139,7 @@ test('LlmBrain.summarize(流式):LLM 出错 → 迭代抛出,不静默', async (
       p.onError('HTTP 500')
       p.onDone()
     },
-  } as unknown as LLMClient
+  } as unknown as LlmProvider
   await assert.rejects(async () => {
     for await (const _ of new LlmBrain(llm).summarize({ transcript: 'x' })) {
       // drain

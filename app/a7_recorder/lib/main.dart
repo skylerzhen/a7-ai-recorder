@@ -1,10 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'recording/recording_keep_alive.dart';
 import 'ui/library_screen.dart';
 import 'ui/theme.dart';
 
-void main() => runApp(const ProviderScope(child: A7App()));
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  RecordingKeepAlive.init();
+  runApp(const ProviderScope(child: A7App()));
+}
 
 class A7App extends StatelessWidget {
   const A7App({super.key});

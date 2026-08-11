@@ -7,7 +7,7 @@
  * postSummaryToMarkdown 逐字保留。prompt 构造抽成纯函数 buildSummaryPrompt(便于单测)。
  */
 
-import { LLMClient } from './llm-client'
+import type { LlmProvider } from './providers/llm-provider'
 
 export interface PostMeetingSummary {
   /** Full narrative summary (no length limit) */
@@ -57,7 +57,7 @@ export function buildSummaryPrompt(transcriptText: string, meta?: SummaryMeta, c
  * generateShort 在 HTTP 失败时抛错,由调用方捕获上抛。
  */
 export async function generatePostMeetingSummary(params: {
-  llmClient: LLMClient
+  llmClient: LlmProvider
   transcriptText: string
   meta?: SummaryMeta
   context?: string

@@ -6,32 +6,42 @@
  * Supports Volcengine Ark (doubao) and any OpenAI-compatible endpoint.
  */
 
-export interface LLMConfig {
-  apiKey: string
-  model: string
-  baseURL: string // e.g. https://ark.cn-beijing.volces.com/api/v3
-}
+import {
+  inferLlmProviderKind,
+  type ChatMessage,
+  type LlmProvider,
+  type LlmProviderConfig,
+} from './providers/llm-provider'
 
-export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant'
-  content: string
-}
+export type { ChatMessage, LlmProviderConfig as LLMConfig } from './providers/llm-provider'
 
-export class LLMClient {
+export class LLMClient implements LlmProvider {
   private apiKey: string
   private model: string
   private baseURL: string
+  private providerKind: ReturnType<typeof inferLlmProviderKind>
 
-  constructor(config: LLMConfig) {
+  constructor(config: LlmProviderConfig) {
     this.apiKey = config.apiKey
     this.model = config.model
     this.baseURL = config.baseURL.replace(/\/$/, '')
+    this.providerKind = inferLlmProviderKind(config.baseURL, config.provider)
   }
 
-  updateConfig(config: Partial<LLMConfig>): void {
+  updateConfig(config: Partial<LlmProviderConfig>): void {
     if (config.apiKey) this.apiKey = config.apiKey
     if (config.model) this.model = config.model
-    if (config.baseURL) this.baseURL = config.baseURL.replace(/\/$/, '')
+    if (config.baseURL) {
+      this.baseURL = config.baseURL.replace(/\/$/, '')
+      this.providerKind = inferLlmProviderKind(config.baseURL, config.provider ?? this.providerKind)
+    } else if (config.provider) {
+      this.providerKind = inferLlmProviderKind(this.baseURL, config.provider)
+    }
+  }
+
+  /** 豆包专有:关闭深度思考;其他 provider 不带此字段 */
+  private chatExtras(): Record<string, unknown> {
+    return this.providerKind === 'ark-doubao' ? { thinking: { type: 'disabled' } } : {}
   }
 
   /** Streaming chat completion */
@@ -62,8 +72,7 @@ export class LLMClient {
           max_tokens: params.maxTokens ?? 1024,
           messages,
           stream: true,
-          // 关闭深度思考:doubao-seed 默认先推理再吐字(首 token ~12s),disabled 后直接出字。
-          thinking: { type: 'disabled' },
+          ...this.chatExtras(),
         }),
         signal: params.signal,
       })
@@ -143,8 +152,7 @@ export class LLMClient {
         model: this.model,
         max_tokens: params.maxTokens ?? 1024,
         messages,
-        // 关闭深度思考(纪要同病):直接出结果,省掉 seed 模型的长推理前置。
-        thinking: { type: 'disabled' },
+        ...this.chatExtras(),
       }),
       signal: params.signal,
     })

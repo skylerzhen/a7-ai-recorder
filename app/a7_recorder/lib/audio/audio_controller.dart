@@ -12,6 +12,7 @@ import 'package:a7_protocol/a7_protocol.dart';
 import '../ble/fake_streaming_transport.dart';
 import '../ble/fake_unbounded_transport.dart';
 import '../ble/transport.dart';
+import '../recording/recording_keep_alive.dart';
 import 'live_mp3_source.dart';
 import 'live_ogg_source.dart';
 
@@ -230,6 +231,7 @@ class AudioController extends Notifier<AudioState> {
   Future<void> playDeviceRealtime(BleTransport transport) async {
     try {
       await _stopAll();
+      await RecordingKeepAlive.start();
       final src = LiveMp3Source();
       _liveSource = src;
       state = const AudioState(phase: AudioPhase.realtimePlaying, note: '开始录音 0x06…');
@@ -249,6 +251,7 @@ class AudioController extends Notifier<AudioState> {
         );
       });
     } catch (e) {
+      await RecordingKeepAlive.stop();
       state = AudioState(phase: AudioPhase.error, error: '$e');
     }
   }
@@ -256,6 +259,7 @@ class AudioController extends Notifier<AudioState> {
   /// 真机:停播 + 0x07 停录。
   Future<void> stopDevice(BleTransport transport) async {
     await _stopAll();
+    await RecordingKeepAlive.stop();
     try {
       await transport.writeCommand(stopRecording());
     } catch (_) {}
@@ -272,6 +276,7 @@ class AudioController extends Notifier<AudioState> {
     }
     try {
       await _stopAll();
+      await RecordingKeepAlive.start();
       final src = LiveOggSource();
       _liveOgg = src;
       state = const AudioState(phase: AudioPhase.realtimePlaying, note: '开始录音 0x06…');
@@ -288,6 +293,7 @@ class AudioController extends Notifier<AudioState> {
       unawaited(_player.play()); // 无界流不能 await
       state = state.copyWith(note: '边录边听(Opus→Ogg · ExoPlayer 原生解码)…');
     } catch (e) {
+      await RecordingKeepAlive.stop();
       state = AudioState(phase: AudioPhase.error, error: '$e');
     }
   }
