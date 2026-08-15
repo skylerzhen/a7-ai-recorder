@@ -7,6 +7,7 @@ import 'caption_screen.dart';
 import 'connection_indicator.dart';
 import 'detail_screen.dart';
 import 'device_settings_screen.dart';
+import 'recording_banner.dart';
 import 'theme.dart';
 
 /// 主页·我的会议(战情台):信息丰富的会议卡列表 + 醒目「开始会议」。
@@ -34,13 +35,22 @@ class LibraryScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: recs.isEmpty
-          ? _empty()
-          : ListView.builder(
-              padding: const EdgeInsets.fromLTRB(AppSpacing.m, AppSpacing.s, AppSpacing.m, AppSpacing.s),
-              itemCount: recs.length,
-              itemBuilder: (_, i) => _MeetingCard(rec: recs[i]),
-            ),
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const RecordingBanner(compact: true),
+          Expanded(
+            child: recs.isEmpty
+                ? _empty()
+                : ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(
+                        AppSpacing.m, AppSpacing.s, AppSpacing.m, AppSpacing.s),
+                    itemCount: recs.length,
+                    itemBuilder: (_, i) => _MeetingCard(rec: recs[i]),
+                  ),
+          ),
+        ],
+      ),
       bottomNavigationBar: _startBar(context),
     );
   }

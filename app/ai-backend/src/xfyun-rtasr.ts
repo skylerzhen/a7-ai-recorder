@@ -24,6 +24,8 @@ export interface XfyunConfig {
   appId: string
   accessKeyId: string
   accessKeySecret: string
+  /** autodialect=中文+方言(默认); en=英语; 见讯飞 RTASR 文档 */
+  lang?: string
   voiceprints?: VoiceprintEntry[]
 }
 
@@ -255,7 +257,7 @@ export class XfyunRtasrClient {
       accessKeyId: this.config.accessKeyId,
       appId: this.config.appId,
       audio_encode: 'pcm_s16le',
-      lang: 'autodialect',
+      lang: this.config.lang ?? 'autodialect',
       role_type: '2',
       samplerate: '16000',
       utc: utcStr,

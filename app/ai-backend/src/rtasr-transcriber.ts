@@ -14,6 +14,7 @@ export interface RtasrCfg {
   appId: string
   accessKeyId: string
   accessKeySecret: string
+  lang?: string
   frameMs: number
 }
 
@@ -35,6 +36,7 @@ export class RtasrRealtimeTranscriber implements Transcriber {
       appId: this.cfg.appId,
       accessKeyId: this.cfg.accessKeyId,
       accessKeySecret: this.cfg.accessKeySecret,
+      lang: this.cfg.lang,
     })
     client.onTranscript = (text, speaker, isFinal, speakerName, startMs, endMs) => {
       const seg: TranscriptSeg = {

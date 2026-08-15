@@ -1,0 +1,14 @@
+---
+description: End-of-day — 收工 → write docs/daily-logs + commit + push origin
+alwaysApply: true
+---
+
+When user says 收工 / 写日志 / daily log:
+
+1. Write or update `docs/daily-logs/YYYY-MM-DD.md`
+2. `git add -A && git commit -m "docs: daily log YYYY-MM-DD"`
+3. `git push origin <current-branch>` — **origin** is skylerzhen personal repo
+
+User only says **收工**. Do not ask them to write markdown manually.
+
+Team source remains on `upstream` (Codejoy-Lab/a7-ai-recorder).

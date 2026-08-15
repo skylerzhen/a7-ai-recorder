@@ -13,6 +13,7 @@ import '../audio/ogg_opus_muxer.dart';
 import '../library/recording.dart';
 import '../library/recording_store.dart';
 import '../library/segment_match.dart';
+import '../recording/recording_keep_alive.dart';
 
 /// 详情页「三件套」:① 播放器(可拖动) ② 说话人转写(点段跳转 + 播放高亮) ③ AI 纪要。
 /// 未处理 → 「生成转写+纪要」调真后端 /process 存本地;已处理 → 直接读本地。
@@ -46,8 +47,15 @@ class _DetailScreenState extends ConsumerState<DetailScreen> {
     if (_loadedPath == rec.audioPath) return;
     _loadedPath = rec.audioPath;
     try {
+      final audioFile = File(rec.audioPath);
+      if (!await audioFile.exists() || await audioFile.length() < 44) {
+        throw Exception('音频文件不存在或为空');
+      }
+      await RecordingKeepAlive.configurePlaybackSession();
       final path = await _playablePath(rec.audioPath);
       await _player.setFilePath(path);
+      final d = _player.duration;
+      if (d != null && mounted) setState(() => _dur = d);
     } catch (e) {
       _loadedPath = null; // 失败允许下次重试
       setState(() => _error = '加载音频失败:$e');

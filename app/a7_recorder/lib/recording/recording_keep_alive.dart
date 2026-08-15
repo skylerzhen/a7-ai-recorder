@@ -73,17 +73,20 @@ class RecordingKeepAlive {
 
     if (Platform.isAndroid) {
       await _ensureAndroidNotificationPermission();
-      if (await FlutterForegroundTask.isRunningService) return;
-      final result = await FlutterForegroundTask.startService(
-        serviceId: 8787,
-        notificationTitle: 'A7 会议录音',
-        notificationText: '后台录音进行中，点击返回 App',
-        serviceTypes: const [ForegroundServiceTypes.microphone],
-        callback: recordingKeepAliveCallback,
-      );
-      if (result is ServiceRequestFailure) {
-        debugPrint('RecordingKeepAlive FGS failed: ${result.error}');
-      }
+    } else if (Platform.isIOS) {
+      await _ensureIosNotificationPermission();
+    }
+
+    if (await FlutterForegroundTask.isRunningService) return;
+    final result = await FlutterForegroundTask.startService(
+      serviceId: 8787,
+      notificationTitle: 'A7 会议录音',
+      notificationText: '后台录音进行中，点击返回 App',
+      serviceTypes: Platform.isAndroid ? const [ForegroundServiceTypes.microphone] : null,
+      callback: Platform.isAndroid ? recordingKeepAliveCallback : null,
+    );
+    if (result is ServiceRequestFailure) {
+      debugPrint('RecordingKeepAlive FGS failed: ${result.error}');
     }
   }
 
@@ -93,16 +96,47 @@ class RecordingKeepAlive {
     if (_refCount > 0) return;
 
     await WakelockPlus.disable();
-    if (Platform.isAndroid && await FlutterForegroundTask.isRunningService) {
+    if (await FlutterForegroundTask.isRunningService) {
       await FlutterForegroundTask.stopService();
     }
-    try {
-      final session = await AudioSession.instance;
-      await session.setActive(false);
-    } catch (_) {}
+    // 不在此处 deactivate 音频会话，否则详情页播放会无声。
+  }
+
+  /// 更新 Android 通知文案（录音计时）。
+  static Future<void> updateNotification({required String text}) async {
+    if (!await FlutterForegroundTask.isRunningService) return;
+    await FlutterForegroundTask.updateService(
+      notificationTitle: 'A7 会议录音',
+      notificationText: text,
+    );
+  }
+
+  /// 详情页/列表播放前切到 playback 会话。
+  static Future<void> configurePlaybackSession() async {
+    final session = await AudioSession.instance;
+    await session.configure(
+      const AudioSessionConfiguration(
+        avAudioSessionCategory: AVAudioSessionCategory.playback,
+        avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.defaultToSpeaker,
+        avAudioSessionMode: AVAudioSessionMode.defaultMode,
+        androidAudioAttributes: AndroidAudioAttributes(
+          contentType: AndroidAudioContentType.music,
+          usage: AndroidAudioUsage.media,
+        ),
+        androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
+      ),
+    );
+    await session.setActive(true);
   }
 
   static Future<void> _ensureAndroidNotificationPermission() async {
+    final perm = await FlutterForegroundTask.checkNotificationPermission();
+    if (perm != NotificationPermission.granted) {
+      await FlutterForegroundTask.requestNotificationPermission();
+    }
+  }
+
+  static Future<void> _ensureIosNotificationPermission() async {
     final perm = await FlutterForegroundTask.checkNotificationPermission();
     if (perm != NotificationPermission.granted) {
       await FlutterForegroundTask.requestNotificationPermission();

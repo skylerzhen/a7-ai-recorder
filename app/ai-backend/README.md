@@ -24,6 +24,28 @@ npm run dev
 
 关键环境变量见 `.env.example`。`.env` 严禁提交。
 
+### 接上 OpenClaw（LLM）
+
+OpenClaw 是 **Gateway 网关**（非个人云账号），ai-backend 通过 OpenAI 兼容 HTTP 调用它。
+
+1. 在一台机器上安装并启动 OpenClaw Gateway（见 [OpenClaw HTTP API 文档](https://docs.openclaw.ai/gateway/openai-http-api)）
+2. 开启 Chat Completions 端点（默认关闭）：
+   ```bash
+   openclaw config set gateway.http.endpoints.chatCompletions.enabled true
+   openclaw gateway restart
+   ```
+3. 在 `app/ai-backend/.env` 配置：
+   ```env
+   OPENCLAW_GATEWAY_URL=http://127.0.0.1:18789/v1
+   OPENCLAW_GATEWAY_TOKEN=<gateway.auth 里的 token>
+   LLM_MODEL=openclaw:main
+   LLM_PROVIDER=openai-compatible
+   ```
+4. 验收：`node --import tsx openclaw-check.ts`
+5. 重启 ai-backend；`GET /health` 应显示 `llmViaOpenclaw: true`
+
+讯飞 ASR（`XFYUN_*`）不变；仅 LLM（问 AI / 纪要）走 OpenClaw。
+
 异步转写默认使用 `TRANSCRIBER=lfasr`；仅调试或回归时可切换为 `rtasr`。生产部署资产位于 `deploy/`。
 
 ## 当前状态

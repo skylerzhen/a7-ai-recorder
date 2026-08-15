@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:a7_protocol/a7_protocol.dart';
 import 'package:file_selector/file_selector.dart';
@@ -17,9 +16,12 @@ import '../ble/fake_unbounded_transport.dart';
 import '../device/a7_device.dart';
 import '../library/recording.dart';
 import '../library/recording_store.dart';
+import '../recording/live_recording_state.dart';
+import '../recording/recording_audio_sink.dart';
 import '../recording/recording_keep_alive.dart';
 import 'connection_indicator.dart';
 import 'detail_screen.dart';
+import 'recording_banner.dart';
 import 'theme.dart';
 
 /// 会中屏(会议副驾):音频源(真机 A7 B0B3 / 模拟器回放)→ 后端 /stream → 活字幕;
@@ -52,7 +54,7 @@ class _CaptionScreenState extends ConsumerState<CaptionScreen> {
   FakeUnboundedTransport? _fake;
   AudioRecorder? _mic; // 手机收音(record):PCM 流
   List<int>? _rtBytes;
-  final List<int> _audioBuf = [];
+  final RecordingAudioSink _audioSink = RecordingAudioSink();
   final _scrollCtl = ScrollController();
 
   // 录音计时(顶部「在听」时长)
@@ -84,6 +86,7 @@ class _CaptionScreenState extends ConsumerState<CaptionScreen> {
   @override
   void dispose() {
     unawaited(RecordingKeepAlive.stop());
+    ref.read(liveRecordingProvider.notifier).onStop();
     _capSub?.cancel();
     _audioSub?.cancel();
     _askSub?.cancel();
@@ -92,11 +95,18 @@ class _CaptionScreenState extends ConsumerState<CaptionScreen> {
     _fake?.dispose();
     _mic?.dispose();
     _client?.close();
+    unawaited(_audioSink.close());
     _scrollCtl.dispose();
     _goalCtl.dispose();
     _askCtl.dispose();
     super.dispose();
   }
+
+  String _sourceLabel() => switch (_src) {
+        _Src.phone => '手机麦克风',
+        _Src.real => 'A7 录音卡',
+        _Src.sim => '模拟器回放',
+      };
 
   // ───────────────────────── 逻辑(接线全保留,未改语义) ─────────────────────────
 
@@ -196,6 +206,8 @@ class _CaptionScreenState extends ConsumerState<CaptionScreen> {
   }
 
   Future<void> _start() async {
+    await _audioSink.close();
+    await _audioSink.deleteTemp();
     setState(() {
       _running = true;
       _ready = false;
@@ -203,7 +215,6 @@ class _CaptionScreenState extends ConsumerState<CaptionScreen> {
       _finals.clear();
       _interim = null;
       _summary = null;
-      _audioBuf.clear();
       _activeCue = null;
       _activeRationale = null;
       _lastCue = '';
@@ -212,9 +223,16 @@ class _CaptionScreenState extends ConsumerState<CaptionScreen> {
       _cueHistory.clear();
       _elapsedSec = 0;
     });
+    ref.read(liveRecordingProvider.notifier).onStart(sourceLabel: _sourceLabel());
     _tick?.cancel();
     _tick = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (_running && mounted) setState(() => _elapsedSec++);
+      if (_running && mounted) {
+        setState(() => _elapsedSec++);
+        ref.read(liveRecordingProvider.notifier).onTick(_elapsedSec);
+        unawaited(RecordingKeepAlive.updateNotification(
+          text: '录音中 ${RecordingBanner.fmtClock(_elapsedSec)} · 点击返回 App',
+        ));
+      }
     });
     try {
       await RecordingKeepAlive.start();
@@ -252,6 +270,7 @@ class _CaptionScreenState extends ConsumerState<CaptionScreen> {
     switch (m.type) {
       case 'ready':
         setState(() => _ready = true);
+        ref.read(liveRecordingProvider.notifier).onReady();
         _startAudio();
         break;
       case 'transcript':
@@ -279,6 +298,8 @@ class _CaptionScreenState extends ConsumerState<CaptionScreen> {
 
   Future<void> _startAudio() async {
     try {
+      final isPhone = _src == _Src.phone;
+      await _audioSink.open(pcm: isPhone);
       if (_src == _Src.phone) {
         // 手机麦克风:PCM s16le / 16k / mono(RTASR 帧就吃这个);先要权限。
         final mic = AudioRecorder();
@@ -292,11 +313,11 @@ class _CaptionScreenState extends ConsumerState<CaptionScreen> {
           sampleRate: 16000,
           numChannels: 1,
           // 来电等中断后尽量自动恢复收音(iOS 需 Info.plist audio 后台模式)。
-          audioInterruptionMode: AudioInterruptionMode.pauseResume,
+          audioInterruption: AudioInterruptionMode.pauseResume,
         ));
         _audioSub = stream.cast<List<int>>().listen((b) {
           _client?.sendAudio(b);
-          _audioBuf.addAll(b);
+          _audioSink.write(b);
         });
       } else if (_src == _Src.sim) {
         _rtBytes ??= (await rootBundle.load('assets/live_b3.mp3')).buffer.asUint8List();
@@ -304,7 +325,7 @@ class _CaptionScreenState extends ConsumerState<CaptionScreen> {
         _fake = t;
         _audioSub = t.realtime.listen((b) {
           _client?.sendAudio(b);
-          _audioBuf.addAll(b);
+          _audioSink.write(b);
         });
         await t.connect('caption-demo'); // 无界循环推 live_b3.mp3
       } else {
@@ -312,7 +333,7 @@ class _CaptionScreenState extends ConsumerState<CaptionScreen> {
         await t.writeCommand(startRecording(_recName(), 1)); // 0x06 开录
         _audioSub = t.realtime.listen((b) {
           _client?.sendAudio(b);
-          _audioBuf.addAll(b);
+          _audioSink.write(b);
         });
       }
     } catch (e) {
@@ -325,7 +346,9 @@ class _CaptionScreenState extends ConsumerState<CaptionScreen> {
     _tick?.cancel();
     _client?.end();
     await _stopAudioOnly();
+    await _audioSink.close();
     await RecordingKeepAlive.stop();
+    ref.read(liveRecordingProvider.notifier).onStop();
     if (mounted) setState(() => _running = false);
   }
 
@@ -366,15 +389,26 @@ class _CaptionScreenState extends ConsumerState<CaptionScreen> {
 
   /// 把这段实时录音(音频 + 实时转写 final 段 + 1C 留痕)存为录音库一条;返回新条目 id。
   Future<String?> _save() async {
-    if (_audioBuf.isEmpty) return null;
+    if (!_audioSink.hasData) return null;
     final store = ref.read(recordingStoreProvider.notifier);
     final id = 'live-${DateTime.now().millisecondsSinceEpoch}';
-    // 存盘分流:手机裸 PCM→WAV;A7 新机 Opus→.opus(原样 88B 记录流);A7 旧机/模拟器→.mp3。
     final bool isPhone = _src == _Src.phone;
     final bool isOpus = _src == _Src.real && _realCodec() == 'opus';
-    final List<int> outBytes = isPhone ? _wavFromPcm(_audioBuf) : List<int>.from(_audioBuf);
     final String ext = isPhone ? 'wav' : (isOpus ? 'opus' : 'mp3');
-    final path = await store.saveAudioBytes(id, outBytes, ext: ext);
+    final bytesWritten = _audioSink.bytesWritten;
+
+    late final String path;
+    if (isPhone) {
+      final out = await store.audioPathFor(id, ext: ext);
+      await _audioSink.writeWavFromPcmFile(out);
+      path = out;
+    } else {
+      final out = await store.audioPathFor(id, ext: ext);
+      await _audioSink.copyRawTo(out);
+      path = out;
+    }
+    await _audioSink.deleteTemp();
+
     final segs = _finals
         .map((m) => AiTranscriptSeg(
               speaker: m.speaker,
@@ -390,14 +424,13 @@ class _CaptionScreenState extends ConsumerState<CaptionScreen> {
       audioPath: path,
       title: '实时录音 ${_recName()}',
       durationMs: isPhone
-          ? (_audioBuf.length ~/ 32) // PCM s16le 16k = 32 B/ms
+          ? (bytesWritten ~/ 32)
           : isOpus
-              ? (_audioBuf.length ~/ 88) * 20 // 每 88B 记录 = 20ms
-              : mp3DurationMsFromBytes(_audioBuf.length),
+              ? (bytesWritten ~/ 88) * 20
+              : mp3DurationMsFromBytes(bytesWritten),
       status: segs.isEmpty ? RecStatus.unprocessed : RecStatus.done,
       transcript: segs.isEmpty ? null : segs,
       createdAt: DateTime.now(),
-      // 1C 完整留痕:目标 / 纪要(若已生成)/ 会中问答 / 主动提示;2-CTX:客户背景
       goal: _goalCtl.text.trim().isEmpty ? null : _goalCtl.text.trim(),
       clientBackground: _clientBackground.trim().isEmpty ? null : _clientBackground.trim(),
       summary: _summary,
@@ -426,30 +459,7 @@ class _CaptionScreenState extends ConsumerState<CaptionScreen> {
   }
 
   /// 裸 PCM(s16le/16k/mono)→ 可播放 WAV(44 字节 RIFF 头 + 数据)。just_audio 能放。
-  static Uint8List _wavFromPcm(List<int> pcm, {int sampleRate = 16000, int channels = 1, int bits = 16}) {
-    final dataLen = pcm.length;
-    final byteRate = sampleRate * channels * bits ~/ 8;
-    final blockAlign = channels * bits ~/ 8;
-    final b = BytesBuilder();
-    void s(String v) => b.add(v.codeUnits);
-    void u32(int v) => b.add([v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, (v >> 24) & 0xff]);
-    void u16(int v) => b.add([v & 0xff, (v >> 8) & 0xff]);
-    s('RIFF');
-    u32(36 + dataLen);
-    s('WAVE');
-    s('fmt ');
-    u32(16); // PCM fmt chunk 大小
-    u16(1); // audioFormat=1(PCM)
-    u16(channels);
-    u32(sampleRate);
-    u32(byteRate);
-    u16(blockAlign);
-    u16(bits);
-    s('data');
-    u32(dataLen);
-    b.add(pcm);
-    return b.toBytes();
-  }
+  // _wavFromPcm 已迁移至 RecordingAudioSink，录音期间流式落盘。
 
   void _autoScroll() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -506,7 +516,15 @@ class _CaptionScreenState extends ConsumerState<CaptionScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return PopScope(
+      canPop: !_running,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop || !_running) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('录音进行中，请先点「结束并保存」')),
+        );
+      },
+      child: Scaffold(
       appBar: AppBar(
         titleSpacing: 8,
         title: GestureDetector(
@@ -522,6 +540,10 @@ class _CaptionScreenState extends ConsumerState<CaptionScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              if (_running) ...[
+                const RecordingBanner(),
+                const SizedBox(height: AppSpacing.s),
+              ],
               if (!_running) ...[
                 _sourceSelector(),
                 const SizedBox(height: AppSpacing.s),
@@ -555,6 +577,7 @@ class _CaptionScreenState extends ConsumerState<CaptionScreen> {
         ),
       ),
       bottomNavigationBar: _bottomBar(),
+    ),
     );
   }
 
@@ -898,7 +921,7 @@ class _CaptionScreenState extends ConsumerState<CaptionScreen> {
 
   /// 底部唯一主操作:录音中=结束并保存;停后有音频=保存并查看;空闲=开始会议。
   Widget _bottomBar() {
-    final stoppedWithAudio = !_running && _audioBuf.isNotEmpty;
+    final stoppedWithAudio = !_running && _audioSink.hasData;
     final String label;
     final IconData icon;
     final Color color;

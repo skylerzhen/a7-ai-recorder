@@ -46,6 +46,8 @@ npm-debug.log*
 *.iml
 *.log
 *.swp
+flutter_build_out.txt
+ipa_build.log
 
 # Local SDKs and reverse-engineering inputs
 .tools/

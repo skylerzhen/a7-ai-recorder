@@ -36,12 +36,19 @@ class RecordingStore extends Notifier<List<Recording>> {
   Future<void> _load() async {
     try {
       final f = await _indexFile();
-      if (await f.exists()) {
-        final list = jsonDecode(await f.readAsString()) as List;
-        state = list
-            .map((e) => Recording.fromJson(e as Map<String, dynamic>))
-            .toList();
+      if (!await f.exists()) return;
+      final list = jsonDecode(await f.readAsString()) as List;
+      final loaded = list
+          .map((e) => Recording.fromJson(e as Map<String, dynamic>))
+          .toList();
+      // 与内存合并，避免 add() 后 _load 完成把新录音覆盖掉。
+      final byId = {for (final r in loaded) r.id: r};
+      for (final r in state) {
+        byId[r.id] = r;
       }
+      final merged = byId.values.toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      state = merged;
     } catch (_) {/* 损坏则忽略,从空开始 */}
   }
 
@@ -56,6 +63,20 @@ class RecordingStore extends Notifier<List<Recording>> {
     final f = File('${d.path}/$id.$ext');
     await f.writeAsBytes(bytes, flush: true);
     return f.path;
+  }
+
+  /// 大文件落盘：从已有文件复制/转存，避免整段读入内存。
+  Future<String> saveAudioFromFile(String id, String srcPath, {String ext = 'mp3'}) async {
+    final d = await _audioDir();
+    final dest = File('${d.path}/$id.$ext');
+    await File(srcPath).copy(dest.path);
+    return dest.path;
+  }
+
+  /// 在目标路径创建空音频文件（后续流式写入 WAV 头+PCM）。
+  Future<String> audioPathFor(String id, {String ext = 'mp3'}) async {
+    final d = await _audioDir();
+    return '${d.path}/$id.$ext';
   }
 
   Future<void> add(Recording r) async {
